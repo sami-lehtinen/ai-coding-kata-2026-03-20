@@ -22,6 +22,7 @@ const (
 	CountryUS Country = "US"
 )
 
+// Coupon codes and names used in discount and tax calculations.
 const (
 	couponSave10   = "SAVE10"
 	couponVipOnly  = "VIPONLY"
@@ -30,6 +31,8 @@ const (
 	couponTaxFree  = "TAXFREE"
 )
 
+// Discount rules: base percentages by customer type and coupon bonuses.
+// Discounts accumulate and are capped at maxDiscountPercent.
 const (
 	maxDiscountPercent          = 40
 	vipBaseDiscountPercent      = 15
@@ -45,6 +48,8 @@ const (
 	premiumBaseTierMinSubtotal  = 10000
 )
 
+// Shipping base rates by country and promotion thresholds.
+// Employee surcharge in non-IT countries overrides free shipping.
 const (
 	defaultShippingCents              = 2500
 	shippingITCents                   = 700
@@ -57,6 +62,7 @@ const (
 	employeeNonITShippingSurcharge    = 500
 )
 
+// Tax rates by country with VIP override in specific regions.
 const (
 	taxITPercent      = 22
 	taxDEPercent      = 19
@@ -72,10 +78,21 @@ type Order struct {
 	BlackFriday   bool
 }
 
-// CalculateTotalCents calculates the total price for an order including discounts, shipping, and taxes.
-// Quirk: Unknown customer types and countries fall back gracefully (0% base discount, default shipping, 0% tax).
-// Quirk: Employee surcharge (non-IT countries) overrides free shipping conditions entirely—it is applied
-// after free shipping checks, ensuring employees always pay at least the surcharge in eligible countries.
+// CalculateTotalCents computes the total order price.
+//
+// This function orchestrates three calculation steps:
+//  1. Discounts are applied to the subtotal (capped at 40%)
+//  2. Shipping is computed based on country, customer type, and discounted subtotal
+//  3. Taxes are applied to the discounted subtotal, then added with shipping
+//
+// Return value clamps to 0 for negative totals (edge case with negative input subtotals).
+//
+// Quirk: Unknown customer types and countries fall back gracefully:
+//   - Unknown customer type → 0% base discount
+//   - Unknown country → default shipping (2500 cents) + 0% tax
+//
+// Quirk: Employee surcharge (non-IT countries) overrides free shipping entirely.
+// Employees always pay at least the surcharge, even if other rules would waive shipping.
 func CalculateTotalCents(order Order) int {
 	subtotal := order.SubtotalCents
 	customerType := parseCustomerType(order.CustomerType)
@@ -96,18 +113,31 @@ func CalculateTotalCents(order Order) int {
 	return total
 }
 
+// calculateDiscountPercent computes the total discount percentage for an order.
+//
+// Parameters:
+//   - subtotal: Order subtotal in cents (used for threshold checks)
+//   - customerType: Identifies the customer's tier (vip, premium, employee, regular, new)
+//   - coupon: Coupon code applied (may provide additional discount if thresholds are met)
+//   - blackFriday: True if Black Friday promotion is active
+//
+// Returns: Discount percentage (0-40), where higher values represent greater discounts.
+//
+// Rules (applied in order, discounts accumulate until capped):
+//  1. Customer type discount: vip(15%) > employee(30%) > premium(5-10% tiered) > others(0%)
+//  2. Coupon bonuses: SAVE10(+10% if subtotal >= 5000), VIPONLY(+5% vip only),
+//     BULK(+7% if subtotal >= 20000)
+//  3. Black Friday: +5% bonus for all except employees
+//  4. Hard cap: 40% maximum discount percentage
 func calculateDiscountPercent(subtotal int, customerType CustomerType, coupon string, blackFriday bool) int {
-	// Discounts accumulate additively and are capped at 40%. Order matters:
-	// 1. Customer type discount (0-30%)
-	// 2. Coupon discount (0-10%)
-	// 3. Black Friday bonus (0-5%), except employees are excluded
-	// This can lead to counter-intuitive behavior: a discount closer to 40% may ignore later additions.
 	discountPercent := 0
 
+	// Step 1: Apply customer type base discount.
 	switch customerType {
 	case CustomerTypeVip:
 		discountPercent += vipBaseDiscountPercent
 	case CustomerTypePremium:
+		// Premium tier: 10% for large orders (>= 10000), 5% otherwise.
 		if subtotal >= premiumBaseTierMinSubtotal {
 			discountPercent += premiumHighBaseDiscountPct
 		} else {
@@ -117,6 +147,7 @@ func calculateDiscountPercent(subtotal int, customerType CustomerType, coupon st
 		discountPercent += employeeBaseDiscountPercent
 	}
 
+	// Step 2: Apply coupon-based bonus discounts.
 	switch coupon {
 	case couponSave10:
 		if subtotal >= save10MinSubtotalCents {
@@ -132,13 +163,15 @@ func calculateDiscountPercent(subtotal int, customerType CustomerType, coupon st
 		}
 	}
 
+	// Step 3: Apply Black Friday bonus (except employees are excluded).
 	if blackFriday {
 		if customerType != CustomerTypeEmployee {
 			discountPercent += blackFridayExtraDiscountPct
 		}
 	}
 
-	// Hard cap: no discount exceeds 40%, even if rules would combine to more.
+	// Step 4: Cap at maximum discount percentage.
+	// Note: This can cause later discounts to be silently ignored if cap is reached.
 	if discountPercent > maxDiscountPercent {
 		discountPercent = maxDiscountPercent
 	}
@@ -146,7 +179,47 @@ func calculateDiscountPercent(subtotal int, customerType CustomerType, coupon st
 	return discountPercent
 }
 
+// shouldApplyFreeShipping determines if free shipping applies based on customer type and order subtotal.
+// Free shipping is offered to high-value customers or when promotion coupons are redeemed.
+//
+// Returns true if any free shipping condition is met:
+//   - FREESHIP coupon with discounted subtotal >= 8000 cents
+//   - VIP customer with discounted subtotal >= 15000 cents
+//   - Premium customer with discounted subtotal >= 20000 cents
+func shouldApplyFreeShipping(discountedSubtotal int, customerType CustomerType, coupon string) bool {
+	if coupon == couponFreeShip && discountedSubtotal >= freeShipMinDiscountedSubtotal {
+		return true
+	}
+	if customerType == CustomerTypeVip && discountedSubtotal >= vipFreeShippingMinDiscountedTotal {
+		return true
+	}
+	if customerType == CustomerTypePremium && discountedSubtotal >= premiumFreeShippingMinSubtotal {
+		return true
+	}
+	return false
+}
+
+// calculateShippingCents computes shipping charges for an order.
+//
+// Parameters:
+//   - discountedSubtotal: Subtotal after discounts have been applied (in cents)
+//   - customerType: Customer tier determining shipping eligibility
+//   - country: Destination country affecting base rates and surcharges
+//   - coupon: Coupon code that may waive shipping
+//   - blackFriday: True if Black Friday promotion applies (US surcharge)
+//
+// Returns: Shipping cost in cents.
+//
+// Calculation steps:
+//  1. Determine base shipping by country (IT: 700, DE: 900, US: 1500, others: 2500)
+//  2. Add Black Friday US surcharge (+300 cents if applicable)
+//  3. Apply free shipping if customer qualifies (overrides base shipping)
+//  4. Add employee surcharge in non-IT countries (+500 cents, overrides free shipping)
+//
+// Quirk: Employee surcharge overrides free shipping entirely. Employees always pay minimum
+// shipping (base + surcharge) in DE/US, even if they qualified for free shipping.
 func calculateShippingCents(discountedSubtotal int, customerType CustomerType, country Country, coupon string, blackFriday bool) int {
+	// Step 1: Set base shipping rate by destination country.
 	shippingCents := defaultShippingCents
 	switch country {
 	case CountryIT:
@@ -157,24 +230,18 @@ func calculateShippingCents(discountedSubtotal int, customerType CustomerType, c
 		shippingCents = shippingUSCents
 	}
 
+	// Step 2: Apply Black Friday promotion surcharge for US orders.
 	if blackFriday && country == CountryUS {
 		shippingCents += blackFridayUSShippingSurcharge
 	}
 
-	if coupon == couponFreeShip && discountedSubtotal >= freeShipMinDiscountedSubtotal {
+	// Step 3: Apply free shipping if customer qualifies.
+	if shouldApplyFreeShipping(discountedSubtotal, customerType, coupon) {
 		shippingCents = 0
 	}
 
-	if customerType == CustomerTypeVip && discountedSubtotal >= vipFreeShippingMinDiscountedTotal {
-		shippingCents = 0
-	}
-
-	if customerType == CustomerTypePremium && discountedSubtotal >= premiumFreeShippingMinSubtotal {
-		shippingCents = 0
-	}
-
-	// Quirk: Employee surcharge is applied AFTER free shipping checks, overriding them entirely.
-	// This means employees in DE/US pay the surcharge even if they qualified for free shipping.
+	// Step 4: Apply employee surcharge in non-IT countries (overrides free shipping).
+	// This ensures employees always contribute to shipping costs in those regions.
 	if customerType == CustomerTypeEmployee && country != CountryIT {
 		shippingCents += employeeNonITShippingSurcharge
 	}
@@ -182,7 +249,24 @@ func calculateShippingCents(discountedSubtotal int, customerType CustomerType, c
 	return shippingCents
 }
 
+// calculateTaxPercent computes the applicable tax percentage for an order.
+//
+// Parameters:
+//   - customerType: Customer tier (VIP may get tax reductions in specific countries)
+//   - country: Destination country (determines base tax rate)
+//   - coupon: Coupon code that may waive taxes
+//
+// Returns: Tax percentage (0-22).
+//
+// Rules (applied in order):
+//  1. Base tax by country: IT(22%), DE(19%), US(7%), others(0%)
+//  2. VIP override in Italy: VIP customers pay 20% instead of 22%
+//  3. TAXFREE coupon: Applies only outside Italy, setting tax to 0%
+//
+// Quirk: TAXFREE coupon does not apply to Italy residents, even if they have VIP status.
+// This preserves Italy's minimum tax collection for VIP customers.
 func calculateTaxPercent(customerType CustomerType, country Country, coupon string) int {
+	// Step 1: Set base tax rate by destination country.
 	taxPercent := 0
 	switch country {
 	case CountryIT:
@@ -193,13 +277,14 @@ func calculateTaxPercent(customerType CustomerType, country Country, coupon stri
 		taxPercent = taxUSPercent
 	}
 
-	// Quirk: VIP customers in Italy pay reduced tax (20% instead of the default 22%).
-	// This override happens after country-based tax is set.
+	// Step 2: Apply VIP tax reduction in Italy only.
+	// Quirk: This override happens after country-based tax is set, reducing IT tax for VIP.
 	if customerType == CustomerTypeVip && country == CountryIT {
 		taxPercent = vipTaxInITPercent
 	}
 
-	// Quirk: TAXFREE coupon only applies to non-Italy countries. Italy residents cannot use it.
+	// Step 3: Apply TAXFREE coupon (non-Italy countries only).
+	// Quirk: Italy residents cannot use this coupon, ensuring base tax collection.
 	if coupon == couponTaxFree && country != CountryIT {
 		taxPercent = 0
 	}
@@ -207,19 +292,26 @@ func calculateTaxPercent(customerType CustomerType, country Country, coupon stri
 	return taxPercent
 }
 
-// parseCustomerType converts user input to a CustomerType.
+// parseCustomerType normalizes and converts user input to a strongly-typed CustomerType.
+// Whitespace is trimmed automatically.
+//
 // Quirk: Unknown customer types do not error; they fall back to 0% base discount and standard rules.
+// Example: parseCustomerType("  acme  ") returns CustomerType("acme"), which matches no case
+// and results in 0% customer discount.
 func parseCustomerType(value string) CustomerType {
 	return CustomerType(safe(value))
 }
 
-// parseCountry converts user input to a Country.
+// parseCountry normalizes and converts user input to a strongly-typed Country.
+// Whitespace is trimmed automatically.
+//
 // Quirk: Unknown countries do not error; they fall back to default shipping (2500 cents) and 0% tax.
+// Example: parseCountry("  FR  ") returns Country("FR"), which matches no case and uses defaults.
 func parseCountry(value string) Country {
 	return Country(safe(value))
 }
 
-// safe trims leading/trailing whitespace from input strings for comparison.
+// safe trims leading and trailing whitespace from input strings to enable consistent comparisons.
 func safe(value string) string {
 	return strings.TrimSpace(value)
 }
