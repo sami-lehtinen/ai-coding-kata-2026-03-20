@@ -1,6 +1,27 @@
 package pricing
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
+
+type CustomerType string
+
+const (
+	CustomerTypeRegular  CustomerType = "regular"
+	CustomerTypeNew      CustomerType = "new"
+	CustomerTypeVip      CustomerType = "vip"
+	CustomerTypePremium  CustomerType = "premium"
+	CustomerTypeEmployee CustomerType = "employee"
+)
+
+type Country string
+
+const (
+	CountryIT Country = "IT"
+	CountryDE Country = "DE"
+	CountryUS Country = "US"
+)
 
 type Order struct {
 	CustomerType  string
@@ -12,8 +33,8 @@ type Order struct {
 
 func CalculateTotalCents(order Order) int {
 	subtotal := order.SubtotalCents
-	customerType := safe(order.CustomerType)
-	country := safe(order.Country)
+	customerType := parseCustomerType(order.CustomerType)
+	country := parseCountry(order.Country)
 	coupon := safe(order.CouponCode)
 
 	discountPercent := calculateDiscountPercent(subtotal, customerType, coupon, order.BlackFriday)
@@ -30,37 +51,39 @@ func CalculateTotalCents(order Order) int {
 	return total
 }
 
-func calculateDiscountPercent(subtotal int, customerType, coupon string, blackFriday bool) int {
+func calculateDiscountPercent(subtotal int, customerType CustomerType, coupon string, blackFriday bool) int {
 	discountPercent := 0
 
-	if customerType == "vip" {
+	switch customerType {
+	case CustomerTypeVip:
 		discountPercent += 15
-	} else if customerType == "premium" {
+	case CustomerTypePremium:
 		if subtotal >= 10000 {
 			discountPercent += 10
 		} else {
 			discountPercent += 5
 		}
-	} else if customerType == "employee" {
+	case CustomerTypeEmployee:
 		discountPercent += 30
 	}
 
-	if coupon == "SAVE10" {
+	switch coupon {
+	case "SAVE10":
 		if subtotal >= 5000 {
 			discountPercent += 10
 		}
-	} else if coupon == "VIPONLY" {
-		if customerType == "vip" {
+	case "VIPONLY":
+		if customerType == CustomerTypeVip {
 			discountPercent += 5
 		}
-	} else if coupon == "BULK" {
+	case "BULK":
 		if subtotal >= 20000 {
 			discountPercent += 7
 		}
 	}
 
 	if blackFriday {
-		if customerType != "employee" {
+		if customerType != CustomerTypeEmployee {
 			discountPercent += 5
 		}
 	}
@@ -72,17 +95,18 @@ func calculateDiscountPercent(subtotal int, customerType, coupon string, blackFr
 	return discountPercent
 }
 
-func calculateShippingCents(discountedSubtotal int, customerType, country, coupon string, blackFriday bool) int {
+func calculateShippingCents(discountedSubtotal int, customerType CustomerType, country Country, coupon string, blackFriday bool) int {
 	shippingCents := 2500
-	if country == "IT" {
+	switch country {
+	case CountryIT:
 		shippingCents = 700
-	} else if country == "DE" {
+	case CountryDE:
 		shippingCents = 900
-	} else if country == "US" {
+	case CountryUS:
 		shippingCents = 1500
 	}
 
-	if blackFriday && country == "US" {
+	if blackFriday && country == CountryUS {
 		shippingCents += 300
 	}
 
@@ -90,40 +114,63 @@ func calculateShippingCents(discountedSubtotal int, customerType, country, coupo
 		shippingCents = 0
 	}
 
-	if customerType == "vip" && discountedSubtotal >= 15000 {
+	if customerType == CustomerTypeVip && discountedSubtotal >= 15000 {
 		shippingCents = 0
 	}
 
-	if customerType == "premium" && discountedSubtotal >= 20000 {
+	if customerType == CustomerTypePremium && discountedSubtotal >= 20000 {
 		shippingCents = 0
 	}
 
-	if customerType == "employee" && country != "IT" {
+	if customerType == CustomerTypeEmployee && country != CountryIT {
 		shippingCents += 500
 	}
 
 	return shippingCents
 }
 
-func calculateTaxPercent(customerType, country, coupon string) int {
+func calculateTaxPercent(customerType CustomerType, country Country, coupon string) int {
 	taxPercent := 0
-	if country == "IT" {
+	switch country {
+	case CountryIT:
 		taxPercent = 22
-	} else if country == "DE" {
+	case CountryDE:
 		taxPercent = 19
-	} else if country == "US" {
+	case CountryUS:
 		taxPercent = 7
 	}
 
-	if customerType == "vip" && country == "IT" {
+	if customerType == CustomerTypeVip && country == CountryIT {
 		taxPercent = 20
 	}
 
-	if coupon == "TAXFREE" && country != "IT" {
+	if coupon == "TAXFREE" && country != CountryIT {
 		taxPercent = 0
 	}
 
 	return taxPercent
+}
+
+func parseCustomerType(value string) CustomerType {
+	clean := CustomerType(safe(value))
+
+	switch clean {
+	case CustomerTypeRegular, CustomerTypeNew, CustomerTypeVip, CustomerTypePremium, CustomerTypeEmployee:
+		return clean
+	default:
+		panic(fmt.Sprintf("unsupported customer type: %q", value))
+	}
+}
+
+func parseCountry(value string) Country {
+	clean := Country(safe(value))
+
+	switch clean {
+	case CountryIT, CountryDE, CountryUS:
+		return clean
+	default:
+		panic(fmt.Sprintf("unsupported country: %q", value))
+	}
 }
 
 func safe(value string) string {
