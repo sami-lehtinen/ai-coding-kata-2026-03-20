@@ -1,7 +1,6 @@
 package pricing
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -152,25 +151,11 @@ func calculateTaxPercent(customerType CustomerType, country Country, coupon stri
 }
 
 func parseCustomerType(value string) CustomerType {
-	clean := CustomerType(safe(value))
-
-	switch clean {
-	case CustomerTypeRegular, CustomerTypeNew, CustomerTypeVip, CustomerTypePremium, CustomerTypeEmployee:
-		return clean
-	default:
-		panic(fmt.Sprintf("unsupported customer type: %q", value))
-	}
+	return CustomerType(safe(value))
 }
 
 func parseCountry(value string) Country {
-	clean := Country(safe(value))
-
-	switch clean {
-	case CountryIT, CountryDE, CountryUS:
-		return clean
-	default:
-		panic(fmt.Sprintf("unsupported country: %q", value))
-	}
+	return Country(safe(value))
 }
 
 func safe(value string) string {

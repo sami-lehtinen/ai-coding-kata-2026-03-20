@@ -103,6 +103,17 @@ func TestCalculateTotalCents_CurrentBehavior(t *testing.T) {
 			expected: 11965,
 		},
 		{
+			name: "unknown country uses default shipping and no tax",
+			order: pricing.Order{
+				CustomerType:  "mystery",
+				SubtotalCents: 10000,
+				Country:       "FR",
+				CouponCode:    "",
+				BlackFriday:   false,
+			},
+			expected: 12500,
+		},
+		{
 			name: "safe trims spaces in string fields",
 			order: pricing.Order{
 				CustomerType:  " vip ",
@@ -198,28 +209,4 @@ func TestCalculateTotalCents_CurrentBehavior(t *testing.T) {
 			require.Equal(t, tc.expected, actual)
 		})
 	}
-}
-
-func TestCalculateTotalCents_PanicsOnUnsupportedCustomerType(t *testing.T) {
-	require.Panics(t, func() {
-		_ = pricing.CalculateTotalCents(pricing.Order{
-			CustomerType:  "mystery",
-			SubtotalCents: 10000,
-			Country:       "IT",
-			CouponCode:    "",
-			BlackFriday:   false,
-		})
-	})
-}
-
-func TestCalculateTotalCents_PanicsOnUnsupportedCountry(t *testing.T) {
-	require.Panics(t, func() {
-		_ = pricing.CalculateTotalCents(pricing.Order{
-			CustomerType:  "regular",
-			SubtotalCents: 10000,
-			Country:       "FR",
-			CouponCode:    "",
-			BlackFriday:   false,
-		})
-	})
 }
