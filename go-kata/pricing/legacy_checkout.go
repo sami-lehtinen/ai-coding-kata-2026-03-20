@@ -16,6 +16,21 @@ func CalculateTotalCents(order Order) int {
 	country := safe(order.Country)
 	coupon := safe(order.CouponCode)
 
+	discountPercent := calculateDiscountPercent(subtotal, customerType, coupon, order.BlackFriday)
+	discountedSubtotal := subtotal * (100 - discountPercent) / 100
+	shippingCents := calculateShippingCents(discountedSubtotal, customerType, country, coupon, order.BlackFriday)
+	taxPercent := calculateTaxPercent(customerType, country, coupon)
+	taxCents := discountedSubtotal * taxPercent / 100
+	total := discountedSubtotal + shippingCents + taxCents
+
+	if total < 0 {
+		return 0
+	}
+
+	return total
+}
+
+func calculateDiscountPercent(subtotal int, customerType, coupon string, blackFriday bool) int {
 	discountPercent := 0
 
 	if customerType == "vip" {
@@ -28,10 +43,6 @@ func CalculateTotalCents(order Order) int {
 		}
 	} else if customerType == "employee" {
 		discountPercent += 30
-	} else if customerType == "regular" || customerType == "new" {
-		discountPercent += 0
-	} else {
-		discountPercent += 0
 	}
 
 	if coupon == "SAVE10" {
@@ -48,7 +59,7 @@ func CalculateTotalCents(order Order) int {
 		}
 	}
 
-	if order.BlackFriday {
+	if blackFriday {
 		if customerType != "employee" {
 			discountPercent += 5
 		}
@@ -58,8 +69,10 @@ func CalculateTotalCents(order Order) int {
 		discountPercent = 40
 	}
 
-	discountedSubtotal := subtotal * (100 - discountPercent) / 100
+	return discountPercent
+}
 
+func calculateShippingCents(discountedSubtotal int, customerType, country, coupon string, blackFriday bool) int {
 	shippingCents := 2500
 	if country == "IT" {
 		shippingCents = 700
@@ -69,7 +82,7 @@ func CalculateTotalCents(order Order) int {
 		shippingCents = 1500
 	}
 
-	if order.BlackFriday && country == "US" {
+	if blackFriday && country == "US" {
 		shippingCents += 300
 	}
 
@@ -89,6 +102,10 @@ func CalculateTotalCents(order Order) int {
 		shippingCents += 500
 	}
 
+	return shippingCents
+}
+
+func calculateTaxPercent(customerType, country, coupon string) int {
 	taxPercent := 0
 	if country == "IT" {
 		taxPercent = 22
@@ -106,14 +123,7 @@ func CalculateTotalCents(order Order) int {
 		taxPercent = 0
 	}
 
-	taxCents := discountedSubtotal * taxPercent / 100
-	total := discountedSubtotal + shippingCents + taxCents
-
-	if total < 0 {
-		return 0
-	}
-
-	return total
+	return taxPercent
 }
 
 func safe(value string) string {
