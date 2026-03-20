@@ -146,6 +146,61 @@ func TestCalculateTotalCents_CurrentBehavior(t *testing.T) {
 			},
 			expected: 25100,
 		},
+		{
+			name: "discount cap at forty percent",
+			order: pricing.Order{
+				CustomerType:  "employee",
+				SubtotalCents: 30000,
+				Country:       "US",
+				CouponCode:    "SAVE10",
+				BlackFriday:   true,
+			},
+			expected: 21560,
+		},
+		{
+			name: "bulk coupon applies at threshold",
+			order: pricing.Order{
+				CustomerType:  "regular",
+				SubtotalCents: 20000,
+				Country:       "DE",
+				CouponCode:    "BULK",
+				BlackFriday:   false,
+			},
+			expected: 23034,
+		},
+		{
+			name: "premium gets free shipping above discounted threshold",
+			order: pricing.Order{
+				CustomerType:  "premium",
+				SubtotalCents: 25000,
+				Country:       "DE",
+				CouponCode:    "",
+				BlackFriday:   false,
+			},
+			expected: 26775,
+		},
+		{
+			name: "freeship still allows employee surcharge",
+			order: pricing.Order{
+				CustomerType:  "employee",
+				SubtotalCents: 12000,
+				Country:       "DE",
+				CouponCode:    "FREESHIP",
+				BlackFriday:   false,
+			},
+			expected: 10496,
+		},
+		{
+			name: "taxfree does not apply in IT",
+			order: pricing.Order{
+				CustomerType:  "regular",
+				SubtotalCents: 10000,
+				Country:       "IT",
+				CouponCode:    "TAXFREE",
+				BlackFriday:   false,
+			},
+			expected: 12900,
+		},
 	}
 
 	for _, tc := range testCases {
