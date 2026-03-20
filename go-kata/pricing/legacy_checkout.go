@@ -12,6 +12,7 @@ const (
 	CustomerTypeVip      CustomerType = "vip"
 	CustomerTypePremium  CustomerType = "premium"
 	CustomerTypeEmployee CustomerType = "employee"
+	CustomerTypePartner  CustomerType = "partner"
 )
 
 type Country string
@@ -29,27 +30,33 @@ const (
 	couponBulk     = "BULK"
 	couponFreeShip = "FREESHIP"
 	couponTaxFree  = "TAXFREE"
+	couponPartner5 = "PARTNER5"
 )
 
 // Discount rules: base percentages by customer type and coupon bonuses.
 // Discounts accumulate and are capped at maxDiscountPercent.
 const (
-	maxDiscountPercent          = 40
-	vipBaseDiscountPercent      = 15
-	premiumHighBaseDiscountPct  = 10
-	premiumLowBaseDiscountPct   = 5
-	employeeBaseDiscountPercent = 30
-	blackFridayExtraDiscountPct = 5
-	save10DiscountPercent       = 10
-	vipOnlyDiscountPercent      = 5
-	bulkDiscountPercent         = 7
-	save10MinSubtotalCents      = 5000
-	bulkMinSubtotalCents        = 20000
-	premiumBaseTierMinSubtotal  = 10000
+	maxDiscountPercent            = 40
+	vipBaseDiscountPercent        = 15
+	premiumHighBaseDiscountPct    = 10
+	premiumLowBaseDiscountPct     = 5
+	employeeBaseDiscountPercent   = 30
+	partnerBaseDiscountPercent    = 12
+	blackFridayExtraDiscountPct   = 5
+	partnerBlackFridayDiscountPct = 3
+	save10DiscountPercent         = 10
+	vipOnlyDiscountPercent        = 5
+	bulkDiscountPercent           = 7
+	partner5DiscountPercent       = 5
+	save10MinSubtotalCents        = 5000
+	bulkMinSubtotalCents          = 20000
+	premiumBaseTierMinSubtotal    = 10000
+	partner5MinSubtotalCents      = 12000
 )
 
 // Shipping base rates by country and promotion thresholds.
 // Employee surcharge in non-IT countries overrides free shipping.
+// Partner customers get free shipping above a specific discounted subtotal threshold.
 const (
 	defaultShippingCents              = 2500
 	shippingITCents                   = 700
@@ -59,6 +66,7 @@ const (
 	freeShipMinDiscountedSubtotal     = 8000
 	vipFreeShippingMinDiscountedTotal = 15000
 	premiumFreeShippingMinSubtotal    = 20000
+	partnerFreeShippingMinSubtotal    = 15000
 	employeeNonITShippingSurcharge    = 500
 )
 
@@ -117,17 +125,17 @@ func CalculateTotalCents(order Order) int {
 //
 // Parameters:
 //   - subtotal: Order subtotal in cents (used for threshold checks)
-//   - customerType: Identifies the customer's tier (vip, premium, employee, regular, new)
+//   - customerType: Identifies the customer's tier (vip, premium, employee, partner, regular, new)
 //   - coupon: Coupon code applied (may provide additional discount if thresholds are met)
 //   - blackFriday: True if Black Friday promotion is active
 //
 // Returns: Discount percentage (0-40), where higher values represent greater discounts.
 //
 // Rules (applied in order, discounts accumulate until capped):
-//  1. Customer type discount: vip(15%) > employee(30%) > premium(5-10% tiered) > others(0%)
+//  1. Customer type discount: employee(30%) > vip(15%) > partner(12%) > premium(5-10% tiered) > others(0%)
 //  2. Coupon bonuses: SAVE10(+10% if subtotal >= 5000), VIPONLY(+5% vip only),
-//     BULK(+7% if subtotal >= 20000)
-//  3. Black Friday: +5% bonus for all except employees
+//     BULK(+7% if subtotal >= 20000), PARTNER5(+5% partner only if subtotal >= 12000)
+//  3. Black Friday: partner(+3%) or others(+5%), employees excluded
 //  4. Hard cap: 40% maximum discount percentage
 func calculateDiscountPercent(subtotal int, customerType CustomerType, coupon string, blackFriday bool) int {
 	discountPercent := 0
@@ -145,6 +153,8 @@ func calculateDiscountPercent(subtotal int, customerType CustomerType, coupon st
 		}
 	case CustomerTypeEmployee:
 		discountPercent += employeeBaseDiscountPercent
+	case CustomerTypePartner:
+		discountPercent += partnerBaseDiscountPercent
 	}
 
 	// Step 2: Apply coupon-based bonus discounts.
@@ -161,11 +171,21 @@ func calculateDiscountPercent(subtotal int, customerType CustomerType, coupon st
 		if subtotal >= bulkMinSubtotalCents {
 			discountPercent += bulkDiscountPercent
 		}
+	case couponPartner5:
+		// PARTNER5 coupon only applies to partner customers and requires minimum subtotal.
+		if customerType == CustomerTypePartner && subtotal >= partner5MinSubtotalCents {
+			discountPercent += partner5DiscountPercent
+		}
 	}
 
 	// Step 3: Apply Black Friday bonus (except employees are excluded).
+	// Note: Partner customers get different bonus (+3%) compared to others (+5%).
 	if blackFriday {
-		if customerType != CustomerTypeEmployee {
+		if customerType == CustomerTypeEmployee {
+			// Employees get no Black Friday discount
+		} else if customerType == CustomerTypePartner {
+			discountPercent += partnerBlackFridayDiscountPct
+		} else {
 			discountPercent += blackFridayExtraDiscountPct
 		}
 	}
@@ -186,6 +206,7 @@ func calculateDiscountPercent(subtotal int, customerType CustomerType, coupon st
 //   - FREESHIP coupon with discounted subtotal >= 8000 cents
 //   - VIP customer with discounted subtotal >= 15000 cents
 //   - Premium customer with discounted subtotal >= 20000 cents
+//   - Partner customer with discounted subtotal >= 15000 cents
 func shouldApplyFreeShipping(discountedSubtotal int, customerType CustomerType, coupon string) bool {
 	if coupon == couponFreeShip && discountedSubtotal >= freeShipMinDiscountedSubtotal {
 		return true
@@ -194,6 +215,9 @@ func shouldApplyFreeShipping(discountedSubtotal int, customerType CustomerType, 
 		return true
 	}
 	if customerType == CustomerTypePremium && discountedSubtotal >= premiumFreeShippingMinSubtotal {
+		return true
+	}
+	if customerType == CustomerTypePartner && discountedSubtotal >= partnerFreeShippingMinSubtotal {
 		return true
 	}
 	return false

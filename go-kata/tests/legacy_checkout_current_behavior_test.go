@@ -201,6 +201,72 @@ func TestCalculateTotalCents_CurrentBehavior(t *testing.T) {
 			},
 			expected: 12900,
 		},
+		{
+			name: "partner IT baseline",
+			order: pricing.Order{
+				CustomerType:  "partner",
+				SubtotalCents: 10000,
+				Country:       "IT",
+				CouponCode:    "",
+				BlackFriday:   false,
+			},
+			expected: 11436,
+		},
+		{
+			name: "partner with PARTNER5 coupon at threshold",
+			order: pricing.Order{
+				CustomerType:  "partner",
+				SubtotalCents: 15000,
+				Country:       "IT",
+				CouponCode:    "PARTNER5",
+				BlackFriday:   false,
+			},
+			expected: 15889,
+		},
+		{
+			name: "partner PARTNER5 below threshold does not apply",
+			order: pricing.Order{
+				CustomerType:  "partner",
+				SubtotalCents: 10000,
+				Country:       "DE",
+				CouponCode:    "PARTNER5",
+				BlackFriday:   false,
+			},
+			expected: 11372,
+		},
+		{
+			name: "partner gets free shipping at threshold",
+			order: pricing.Order{
+				CustomerType:  "partner",
+				SubtotalCents: 20000,
+				Country:       "US",
+				CouponCode:    "",
+				BlackFriday:   false,
+			},
+			expected: 18832,
+		},
+		{
+			name: "partner black friday gets 3% instead of 5%",
+			order: pricing.Order{
+				CustomerType:  "partner",
+				SubtotalCents: 10000,
+				Country:       "IT",
+				CouponCode:    "",
+				BlackFriday:   true,
+			},
+			expected: 11070,
+		},
+		{
+			name: "partner PARTNER5 coupon ignored for non-partner",
+			order: pricing.Order{
+				CustomerType:  "regular",
+				SubtotalCents: 15000,
+				Country:       "IT",
+				CouponCode:    "PARTNER5",
+				BlackFriday:   false,
+			},
+			expected: 19000,
+		},
 	}
 
 	for _, tc := range testCases {
