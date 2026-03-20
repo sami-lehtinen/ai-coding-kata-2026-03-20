@@ -22,6 +22,48 @@ const (
 	CountryUS Country = "US"
 )
 
+const (
+	couponSave10   = "SAVE10"
+	couponVipOnly  = "VIPONLY"
+	couponBulk     = "BULK"
+	couponFreeShip = "FREESHIP"
+	couponTaxFree  = "TAXFREE"
+)
+
+const (
+	maxDiscountPercent          = 40
+	vipBaseDiscountPercent      = 15
+	premiumHighBaseDiscountPct  = 10
+	premiumLowBaseDiscountPct   = 5
+	employeeBaseDiscountPercent = 30
+	blackFridayExtraDiscountPct = 5
+	save10DiscountPercent       = 10
+	vipOnlyDiscountPercent      = 5
+	bulkDiscountPercent         = 7
+	save10MinSubtotalCents      = 5000
+	bulkMinSubtotalCents        = 20000
+	premiumBaseTierMinSubtotal  = 10000
+)
+
+const (
+	defaultShippingCents              = 2500
+	shippingITCents                   = 700
+	shippingDECents                   = 900
+	shippingUSCents                   = 1500
+	blackFridayUSShippingSurcharge    = 300
+	freeShipMinDiscountedSubtotal     = 8000
+	vipFreeShippingMinDiscountedTotal = 15000
+	premiumFreeShippingMinSubtotal    = 20000
+	employeeNonITShippingSurcharge    = 500
+)
+
+const (
+	taxITPercent      = 22
+	taxDEPercent      = 19
+	taxUSPercent      = 7
+	vipTaxInITPercent = 20
+)
+
 type Order struct {
 	CustomerType  string
 	SubtotalCents int
@@ -55,74 +97,74 @@ func calculateDiscountPercent(subtotal int, customerType CustomerType, coupon st
 
 	switch customerType {
 	case CustomerTypeVip:
-		discountPercent += 15
+		discountPercent += vipBaseDiscountPercent
 	case CustomerTypePremium:
-		if subtotal >= 10000 {
-			discountPercent += 10
+		if subtotal >= premiumBaseTierMinSubtotal {
+			discountPercent += premiumHighBaseDiscountPct
 		} else {
-			discountPercent += 5
+			discountPercent += premiumLowBaseDiscountPct
 		}
 	case CustomerTypeEmployee:
-		discountPercent += 30
+		discountPercent += employeeBaseDiscountPercent
 	}
 
 	switch coupon {
-	case "SAVE10":
-		if subtotal >= 5000 {
-			discountPercent += 10
+	case couponSave10:
+		if subtotal >= save10MinSubtotalCents {
+			discountPercent += save10DiscountPercent
 		}
-	case "VIPONLY":
+	case couponVipOnly:
 		if customerType == CustomerTypeVip {
-			discountPercent += 5
+			discountPercent += vipOnlyDiscountPercent
 		}
-	case "BULK":
-		if subtotal >= 20000 {
-			discountPercent += 7
+	case couponBulk:
+		if subtotal >= bulkMinSubtotalCents {
+			discountPercent += bulkDiscountPercent
 		}
 	}
 
 	if blackFriday {
 		if customerType != CustomerTypeEmployee {
-			discountPercent += 5
+			discountPercent += blackFridayExtraDiscountPct
 		}
 	}
 
-	if discountPercent > 40 {
-		discountPercent = 40
+	if discountPercent > maxDiscountPercent {
+		discountPercent = maxDiscountPercent
 	}
 
 	return discountPercent
 }
 
 func calculateShippingCents(discountedSubtotal int, customerType CustomerType, country Country, coupon string, blackFriday bool) int {
-	shippingCents := 2500
+	shippingCents := defaultShippingCents
 	switch country {
 	case CountryIT:
-		shippingCents = 700
+		shippingCents = shippingITCents
 	case CountryDE:
-		shippingCents = 900
+		shippingCents = shippingDECents
 	case CountryUS:
-		shippingCents = 1500
+		shippingCents = shippingUSCents
 	}
 
 	if blackFriday && country == CountryUS {
-		shippingCents += 300
+		shippingCents += blackFridayUSShippingSurcharge
 	}
 
-	if coupon == "FREESHIP" && discountedSubtotal >= 8000 {
+	if coupon == couponFreeShip && discountedSubtotal >= freeShipMinDiscountedSubtotal {
 		shippingCents = 0
 	}
 
-	if customerType == CustomerTypeVip && discountedSubtotal >= 15000 {
+	if customerType == CustomerTypeVip && discountedSubtotal >= vipFreeShippingMinDiscountedTotal {
 		shippingCents = 0
 	}
 
-	if customerType == CustomerTypePremium && discountedSubtotal >= 20000 {
+	if customerType == CustomerTypePremium && discountedSubtotal >= premiumFreeShippingMinSubtotal {
 		shippingCents = 0
 	}
 
 	if customerType == CustomerTypeEmployee && country != CountryIT {
-		shippingCents += 500
+		shippingCents += employeeNonITShippingSurcharge
 	}
 
 	return shippingCents
@@ -132,18 +174,18 @@ func calculateTaxPercent(customerType CustomerType, country Country, coupon stri
 	taxPercent := 0
 	switch country {
 	case CountryIT:
-		taxPercent = 22
+		taxPercent = taxITPercent
 	case CountryDE:
-		taxPercent = 19
+		taxPercent = taxDEPercent
 	case CountryUS:
-		taxPercent = 7
+		taxPercent = taxUSPercent
 	}
 
 	if customerType == CustomerTypeVip && country == CountryIT {
-		taxPercent = 20
+		taxPercent = vipTaxInITPercent
 	}
 
-	if coupon == "TAXFREE" && country != CountryIT {
+	if coupon == couponTaxFree && country != CountryIT {
 		taxPercent = 0
 	}
 
